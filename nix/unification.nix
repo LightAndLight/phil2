@@ -6,8 +6,8 @@ mkDerivation {
   version = "0.1.0.0";
   src = fetchgit {
     url = "https://github.com/lightandlight/unification";
-    sha256 = "0zkb2p5c2rxcl4mc9hm3x98734xp9nv1ic73h2pij26ncamc36mj";
-    rev = "d12603fe87df06f252a667356a5d6ed216561d38";
+    sha256 = "0gznlrjq0709qlymzs1p8gcja5n4ba2b903bqbdha73d2jnr9d0c";
+    rev = "21c94b88613a018ec023327c4a9b146c223cd1e3";
   };
   libraryHaskellDepends = [
     base deriving-compat equivalence lens mtl

@@ -6,15 +6,13 @@ module Phil.Typecheck where
 
 import Control.Lens.Getter ((^.), view)
 import Control.Lens.Iso (from)
-import Control.Lens.Prism (_Left)
-import Control.Lens.Review ((#))
 import Control.Lens.TH (makePrisms)
 import Control.Monad ((<=<), join)
 import Control.Monad.State (runState, get, put)
 import Control.Monad.Trans (lift)
 import Control.Monad.Unify
-  (UnifyT, UTerm, UVar, runUnifyT, _Var, fresh, unify, find, unfreeze, uterm,
-   AsUnificationError(..))
+  (UnifyT, UTerm, UVar, runUnifyT, fresh, freshVar, unify, find, unfreeze,
+   uterm, AsUnificationError(..))
 import Data.Map (Map)
 
 import qualified Data.Map as Map
@@ -56,7 +54,7 @@ instantiate
   => TypeScheme ann v
   -> UnifyT (Type ann) v m (UTerm (Type ann) v)
 instantiate (Forall vs ty) = do
-  mapping <- zip vs <$> traverse (const fresh) vs
+  mapping <- zip vs <$> traverse (const freshVar) vs
   pure . view uterm $
     ty >>= \var -> TyVar Nothing (maybe (Right var) Left (lookup var mapping))
 
@@ -112,12 +110,12 @@ infer ctxt =
                 Nothing -> lift . Left $ NotFound maybeAnn v
                 Just ty -> instantiate ty >>= lift . Right
         Abs _ n expr' -> do
-          tyVar <- (from uterm._Var._Left #) <$> fresh
+          tyVar <- fresh
           retTy <- go (Map.insert n tyVar localCtxt) expr'
           pure $ TyArr Nothing (tyVar ^. from uterm) (retTy ^. from uterm) ^. uterm
         App _ f x -> do
           xTy <- go localCtxt x
           fTy <- go localCtxt f
-          tyVar <- (from uterm._Var._Left #) <$> fresh
+          tyVar <- fresh
           unify fTy (TyArr Nothing (xTy ^. from uterm) (tyVar ^. from uterm) ^. uterm)
           pure tyVar
