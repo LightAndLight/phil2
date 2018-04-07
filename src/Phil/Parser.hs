@@ -87,7 +87,7 @@ chainl1' p op = scan where
   rst = try ((\f y g x -> g (f x y)) <$> op <*> p) <*> rst <|> pure id
 {-# INLINE chainl1' #-}
 
-expr :: DeltaParsing m => m (Expr Span)
+expr :: DeltaParsing m => m (Expr (Type Span) Span)
 expr = compound
   where
     compound = lambda <|> ann'd
@@ -124,6 +124,9 @@ expr = compound
 
     var = (\(val :~ ann) -> Var (Just ann) val) <$> spanned identifier
 
+    hole = (\ann -> Hole (Just ann)) <$> spanning (string "??")
+
     atom =
       between (char '(' *> many nonNewline) (many nonNewline *> char ')') expr <|>
-      var
+      var <|>
+      hole

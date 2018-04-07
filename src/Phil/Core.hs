@@ -2,6 +2,7 @@
 {-# language MultiParamTypeClasses, FlexibleInstances #-}
 {-# language TemplateHaskell #-}
 {-# language LambdaCase #-}
+{-# language StandaloneDeriving, UndecidableInstances #-}
 module Phil.Core where
 
 import Control.Lens.Lens (Lens', lens)
@@ -9,6 +10,7 @@ import Control.Lens.Plated (Plated(..), gplate)
 import Control.Lens.Plated1 (Plated1(..))
 import Control.Lens.Prism (prism')
 import Control.Lens.TH (makePrisms)
+import Control.Lens.Traversal (Traversal)
 import Control.Monad (ap)
 import Control.Monad.Unify (AsVar(..), HasAnnotation(..), Unifiable(..))
 import Data.Deriving (deriveOrd1, deriveEq1, deriveShow1)
@@ -68,29 +70,43 @@ instance Unifiable (Type ann) where
   toplevelEqual (TyCtor _ a) (TyCtor _ b) = a == b
   toplevelEqual _ _ = False
 
-data Expr ann
+data Expr ty ann
   = Var (Maybe ann) String
-  | Abs (Maybe ann) String (Expr ann)
-  | App (Maybe ann) (Expr ann) (Expr ann)
-  | Ann (Maybe ann) (Expr ann) (Type ann String)
-  deriving (Eq, Show, Generic)
+  | Abs (Maybe ann) String (Expr ty ann)
+  | App (Maybe ann) (Expr ty ann) (Expr ty ann)
+  | Hole (Maybe ann)
+  | Ann (Maybe ann) (Expr ty ann) (ty String)
+  deriving (Generic)
+deriving instance (Eq (ty String), Eq ann) => Eq (Expr ty ann)
+deriving instance (Show (ty String), Show ann) => Show (Expr ty ann)
 
-instance Plated (Expr ann) where
+instance Plated (Expr ty ann) where
   plate = gplate
 
 makePrisms ''Expr
 
-exprAnn :: Lens' (Expr ann) (Maybe ann)
+exprAnn :: Lens' (Expr ty ann) (Maybe ann)
 exprAnn =
   lens
     (\case
         Var ann _ -> ann
         Abs ann _ _ -> ann
         App ann _ _ -> ann
-        Ann ann _ _ -> ann)
+        Ann ann _ _ -> ann
+        Hole ann -> ann)
     (\e ann ->
        case e of
         Var _ a -> Var ann a
         Abs _ a b -> Abs ann a b
         App _ a b -> App ann a b
-        Ann _ a b -> Ann ann a b)
+        Ann _ a b -> Ann ann a b
+        Hole _ -> Hole ann)
+
+exprTypes :: Traversal (Expr ty ann) (Expr ty' ann) (ty String) (ty' String)
+exprTypes f expr =
+  case expr of
+    Var ann a -> pure $ Var ann a
+    Abs ann a b -> Abs ann a <$> exprTypes f b
+    App ann a b -> App ann <$> exprTypes f a <*> exprTypes f b
+    Ann ann a b -> Ann ann <$> exprTypes f a <*> f b
+    Hole ann -> pure $ Hole ann

@@ -7,17 +7,19 @@ module Phil.Typecheck where
 import Control.Lens.Getter ((^.), view)
 import Control.Lens.Iso (from)
 import Control.Lens.TH (makePrisms)
-import Control.Monad ((<=<), join)
-import Control.Monad.State (runState, get, put)
+import Control.Lens.Traversal (traverseOf)
+import Control.Monad (join)
+import Control.Monad.State (runState, evalState, get, put)
 import Control.Monad.Trans (lift)
 import Control.Monad.Unify
-  (UnifyT, UTerm, UVar, runUnifyT, fresh, freshVar, unify, find, unfreeze,
-   uterm, AsUnificationError(..))
+  (UnifyT, UTerm, UVar, runUnifyT, fresh, freshVar, unify, find,
+   unfreeze, uterm, AsUnificationError(..))
+import Data.List ((\\))
 import Data.Map (Map)
 
 import qualified Data.Map as Map
 
-import Phil.Core (Expr(..), Type(..), TypeScheme(..))
+import Phil.Core (Expr(..), Type(..), TypeScheme(..), exprTypes)
 
 data TypeError ann v
   = NotFound (Maybe ann) String
@@ -30,13 +32,38 @@ instance AsUnificationError (TypeError ann v) (Type ann) v (Maybe ann) where
   _OccursError = _Occurs
   _MismatchError = _TypeMismatch
 
-generalize :: UTerm (Type ann) String -> TypeScheme ann String
+generalizeWith
+  :: [(UVar, String)]
+  -> UTerm (Type ann) String
+  -> (Type ann String)
+generalizeWith mapping t =
+  let
+    res = evalState (traverse rename (t ^. from uterm)) initialState
+  in
+    join res
+
+  where
+    initialState =
+      ((("t"++) . show <$> [0::Integer ..]) \\ fmap snd mapping, mapping)
+
+    rename (Left uvar) = do
+      (name:names, mapping') <- get
+      case lookup uvar mapping' of
+        Nothing -> do
+          put (names, (uvar, name) : mapping')
+          pure $ TyVar Nothing name
+        Just name' -> pure $ TyVar Nothing name'
+    rename (Right a) = pure $ TyVar Nothing a
+
+generalize
+  :: UTerm (Type ann) String
+  -> ([(UVar, String)], TypeScheme ann String)
 generalize t =
   let
     (res, (_, mapping)) =
       runState (traverse rename (t ^. from uterm)) initialState
   in
-    Forall Nothing (snd <$> reverse mapping) (join res)
+    (mapping, Forall Nothing (snd <$> reverse mapping) (join res))
 
   where
     initialState = (("t"++) . show <$> [0::Integer ..], [])
@@ -79,43 +106,55 @@ infer
   :: forall ann
    . Ord ann
   => Map String (TypeScheme ann String)
-  -> Expr ann
-  -> Either (TypeError ann String) (TypeScheme ann String)
-infer ctxt =
-  runUnifyT .
-  (pure . generalize <=<
-   find <=<
-   go Map.empty)
+  -> Expr (Type ann) ann
+  -> Either
+       (TypeError ann String)
+       (Expr (Type ann) ann, TypeScheme ann String)
+infer ctxt e =
+  runUnifyT $ do
+    (exprRes, tyRes) <- go Map.empty e
+    tyRes' <- find tyRes
+    let (mapping, tyRes'') = generalize tyRes'
+    exprRes' <-
+      traverseOf exprTypes (fmap (generalizeWith mapping) . find) exprRes
+    pure (exprRes', tyRes'')
 
   where
     go
       :: Map String (UTerm (Type ann) String)
-      -> Expr ann
+      -> Expr (Type ann) ann
       -> UnifyT
            (Type ann)
            String
            (Either (TypeError ann String))
-           (UTerm (Type ann) String)
+           (Expr (UTerm (Type ann)) ann, UTerm (Type ann) String)
     go localCtxt expr =
       case expr of
-        Ann _ x ty -> do
-          xTy <- go localCtxt x
-          unify (unfreeze ty) xTy
-          pure xTy
-        Var maybeAnn v ->
+        Ann ann x ty -> do
+          (x', xTy) <- go localCtxt x
+          let ty' = unfreeze ty
+          unify ty' xTy
+          pure (Ann ann x' ty', xTy)
+        Var ann v ->
           case Map.lookup v localCtxt of
-            Just ty -> lift $ Right ty
+            Just ty -> pure (Ann Nothing (Var ann v) ty, ty)
             Nothing ->
               case Map.lookup v ctxt of
-                Nothing -> lift . Left $ NotFound maybeAnn v
-                Just ty -> instantiate ty >>= lift . Right
-        Abs _ n expr' -> do
+                Nothing -> lift . Left $ NotFound ann v
+                Just ty -> do
+                  ty' <- instantiate ty
+                  pure (Ann Nothing (Var ann v) ty', ty')
+        Abs ann n expr' -> do
           tyVar <- fresh
-          retTy <- go (Map.insert n tyVar localCtxt) expr'
-          pure $ TyArr Nothing (tyVar ^. from uterm) (retTy ^. from uterm) ^. uterm
-        App _ f x -> do
-          xTy <- go localCtxt x
-          fTy <- go localCtxt f
+          (expr'', retTy) <- go (Map.insert n tyVar localCtxt) expr'
+          let ty = TyArr Nothing (tyVar ^. from uterm) (retTy ^. from uterm) ^. uterm
+          pure (Ann Nothing (Abs ann n expr'') ty, ty)
+        App ann f x -> do
+          (x', xTy) <- go localCtxt x
+          (f', fTy) <- go localCtxt f
           tyVar <- fresh
           unify fTy (TyArr Nothing (xTy ^. from uterm) (tyVar ^. from uterm) ^. uterm)
-          pure tyVar
+          pure (Ann Nothing (App ann f' x') tyVar, tyVar)
+        Hole ann -> do
+          ty <- fresh
+          pure (Ann Nothing (Hole ann) ty, ty)
