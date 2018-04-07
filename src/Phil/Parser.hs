@@ -7,12 +7,15 @@ import Control.Lens.Getter ((^.))
 import Data.Semigroup ((<>))
 import Data.String (IsString)
 import Text.Trifecta (DeltaParsing, Span, Spanned(..), spanned, spanning)
-import Text.Parser.Combinators (Parsing, between, chainr1, try)
-import Text.Parser.Char (CharParsing, char, string, letter, digit, space, upper)
+import Text.Parser.Combinators ((<?>), Parsing, between, chainr1, try, sepBy1)
+import Text.Parser.Char (CharParsing, char, string, letter, digit, upper)
 import Text.Parser.Token (IdentifierStyle(..), ident, runUnspaced)
 import Text.Parser.Token.Highlight (Highlight(..))
 
-import Phil.Core (Expr(..), Type(..), exprAnn, typeAnn)
+import Phil.Core (Expr(..), Type(..), TypeScheme(..), exprAnn, typeAnn)
+
+nonNewline :: CharParsing m => m Char
+nonNewline = char ' ' <|> char '\t' <?> "space"
 
 idStyle :: CharParsing m => IdentifierStyle m
 idStyle =
@@ -20,7 +23,7 @@ idStyle =
   { _styleName = "identifier"
   , _styleStart = letter
   , _styleLetter = letter <|> digit
-  , _styleReserved = []
+  , _styleReserved = ["forall"]
   , _styleHighlight = Identifier
   , _styleReservedHighlight = ReservedIdentifier
   }
@@ -42,6 +45,20 @@ identifier = runUnspaced (ident idStyle)
 constructor :: (DeltaParsing m, IsString s) => m s
 constructor = runUnspaced (ident ctorStyle)
 
+typeScheme :: (DeltaParsing m, IsString s) => m (TypeScheme Span s)
+typeScheme =
+  (\a (b :~ bAnn) ->
+     case a of
+       Nothing -> Forall (Just bAnn) [] b
+       Just (ann1, a' :~ aAnn, ann2) ->
+         Forall (Just $ ann1 <> aAnn <> ann2 <> bAnn) a' b) <$>
+  optional
+    ((,,) <$>
+     spanning (string "forall" *> some nonNewline) <*>
+     spanned (sepBy1 identifier (some nonNewline)) <*>
+     spanning (many nonNewline <* char '.' <* many nonNewline)) <*>
+  spanned type_
+
 type_ :: (DeltaParsing m, IsString s) => m (Type Span s)
 type_ = compound
   where
@@ -55,9 +72,12 @@ type_ = compound
               (liftA2 (<>) ((<> ann) <$> (l ^. typeAnn)) (r ^. typeAnn))
               l
               r) <$>
-         spanning (many space *> string "->" *> many space))
+         spanning (many nonNewline *> string "->" *> many nonNewline))
 
-    atom = var <|> ctor
+    atom =
+      var <|>
+      ctor <|>
+      between (char '(' *> many nonNewline) (many nonNewline *> char ')') type_
     ctor = (\(val :~ ann) -> TyCtor (Just ann) val) <$> spanned constructor
     var = (\(val :~ ann) -> TyVar (Just ann) val) <$> spanned identifier
 
@@ -81,15 +101,15 @@ expr = compound
       spanned app <*>
       optional
         ((,) <$>
-         spanning (many space *> char ':' *> many space) <*>
+         spanning (many nonNewline *> char ':' *> many nonNewline) <*>
          spanned type_)
 
     lambda =
       (\aAnn (b :~ bAnn) cAnn (d :~ dAnn) ->
          Abs (Just $ aAnn <> bAnn <> cAnn <> dAnn) b d) <$>
-      spanning (char '\\' *> many space) <*>
+      spanning (char '\\' *> many nonNewline) <*>
       spanned identifier <*>
-      spanning (many space *> string "->" *> many space) <*>
+      spanning (many nonNewline *> string "->" *> many nonNewline) <*>
       spanned expr
 
     app =
@@ -100,10 +120,10 @@ expr = compound
               (liftA2 (<>) ((<> ann) <$> (l ^. exprAnn)) (r ^. exprAnn))
               l
               r) <$>
-         spanning (some space))
+         spanning (some nonNewline))
 
     var = (\(val :~ ann) -> Var (Just ann) val) <$> spanned identifier
 
     atom =
-      between (char '(' *> many space) (many space *> char ')') expr <|>
+      between (char '(' *> many nonNewline) (many nonNewline *> char ')') expr <|>
       var

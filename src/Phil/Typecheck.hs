@@ -36,7 +36,7 @@ generalize t =
     (res, (_, mapping)) =
       runState (traverse rename (t ^. from uterm)) initialState
   in
-    Forall (snd <$> reverse mapping) (join res)
+    Forall Nothing (snd <$> reverse mapping) (join res)
 
   where
     initialState = (("t"++) . show <$> [0::Integer ..], [])
@@ -53,7 +53,7 @@ instantiate
   :: (Monad m, Eq v)
   => TypeScheme ann v
   -> UnifyT (Type ann) v m (UTerm (Type ann) v)
-instantiate (Forall vs ty) = do
+instantiate (Forall _ vs ty) = do
   mapping <- zip vs <$> traverse (const freshVar) vs
   pure . view uterm $
     ty >>= \var -> TyVar Nothing (maybe (Right var) Left (lookup var mapping))
@@ -69,7 +69,7 @@ check
   => TypeScheme ann v
   -> TypeScheme ann v
   -> Either (TypeError ann v) ()
-check (Forall _ ty1) tys2 =
+check (Forall _ _ ty1) tys2 =
   runUnifyT $ do
     ty1' <- pure $ unfreeze ty1
     ty2' <- instantiate tys2

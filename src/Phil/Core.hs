@@ -33,7 +33,7 @@ typeAnn =
         TyArr _ a b -> TyArr ann a b
         TyCtor _ a -> TyCtor ann a)
 
-data TypeScheme ann a = Forall [a] (Type ann a)
+data TypeScheme ann a = Forall (Maybe ann) [a] (Type ann a)
   deriving (Eq, Show, Functor, Foldable, Traversable)
 
 deriveEq1 ''Type
