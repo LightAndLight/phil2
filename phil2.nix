@@ -1,12 +1,13 @@
 { mkDerivation, base, containers, deriving-compat, lens, mtl
-, stdenv, unification
+, parsers, stdenv, trifecta, unification
 }:
 mkDerivation {
   pname = "phil2";
   version = "0.1.0.0";
   src = ./.;
   libraryHaskellDepends = [
-    base containers deriving-compat lens mtl unification
+    base containers deriving-compat lens mtl parsers trifecta
+    unification
   ];
   license = stdenv.lib.licenses.bsd3;
 }

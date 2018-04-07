@@ -98,7 +98,7 @@ infer ctxt =
            (UTerm (Type ann) String)
     go localCtxt expr =
       case expr of
-        Ann _ ty x -> do
+        Ann _ x ty -> do
           xTy <- go localCtxt x
           unify (unfreeze ty) xTy
           pure xTy

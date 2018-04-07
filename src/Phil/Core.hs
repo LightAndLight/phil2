@@ -72,7 +72,7 @@ data Expr ann
   = Var (Maybe ann) String
   | Abs (Maybe ann) String (Expr ann)
   | App (Maybe ann) (Expr ann) (Expr ann)
-  | Ann (Maybe ann) (Type ann String) (Expr ann)
+  | Ann (Maybe ann) (Expr ann) (Type ann String)
   deriving (Eq, Show, Generic)
 
 instance Plated (Expr ann) where
