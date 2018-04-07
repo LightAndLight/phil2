@@ -2,7 +2,7 @@
 {-# language TemplateHaskell #-}
 {-# language MultiParamTypeClasses, FlexibleInstances #-}
 {-# language FlexibleContexts #-}
-module Phil.Infer where
+module Phil.Typecheck where
 
 import Control.Lens.Getter ((^.), view)
 import Control.Lens.Iso (from)
@@ -16,8 +16,6 @@ import Control.Monad.Unify
   (UnifyT, UTerm, UVar, runUnifyT, _Var, fresh, unify, find, unfreeze, uterm,
    AsUnificationError(..))
 import Data.Map (Map)
-import Data.Maybe (fromMaybe)
-
 
 import qualified Data.Map as Map
 
@@ -68,7 +66,6 @@ instantiate (Forall vs ty) = do
 -- 
 -- check (Int -> Int) (forall a. a -> a) succeeds
 -- check (forall a. a -> a) (Int -> Int) fails
-
 check
   :: (Ord v, Ord tyAnn)
   => TypeScheme tyAnn v
@@ -88,38 +85,35 @@ infer
   -> Either (TypeError tyAnn ann String) (TypeScheme tyAnn String)
 infer ctxt expr =
   runUnifyT $
-    (case expr of
-      Ann ann expr' -> go Map.empty (Just ann) expr'
-      _ -> go Map.empty Nothing expr) >>=
+    go Map.empty expr >>=
     find >>=
     pure . generalize
 
   where
     go
       :: Map String (UTerm (Type tyAnn) String)
-      -> Maybe ann
       -> Expr ann
       -> UnifyT
            (Type tyAnn)
            String
            (Either (TypeError tyAnn ann String))
            (UTerm (Type tyAnn) String)
-    go localCtxt maybeAnn expr =
+    go localCtxt expr =
       case expr of
-        Var v ->
+        Var maybeAnn v ->
           case Map.lookup v localCtxt of
             Just ty -> lift $ Right ty
             Nothing ->
               case Map.lookup v ctxt of
                 Nothing -> lift . Left $ NotFound maybeAnn v
                 Just ty -> instantiate ty >>= lift . Right
-        Abs n expr' -> do
+        Abs maybeAnn n expr' -> do
           tyVar <- (from uterm._Var._Left #) <$> fresh
-          retTy <- go (Map.insert n tyVar localCtxt) Nothing expr'
+          retTy <- go (Map.insert n tyVar localCtxt) expr'
           pure $ TyArr Nothing (tyVar ^. from uterm) (retTy ^. from uterm) ^. uterm
-        App f x -> do
-          xTy <- go localCtxt Nothing x
-          fTy <- go localCtxt Nothing f
+        App maybeAnn f x -> do
+          xTy <- go localCtxt x
+          fTy <- go localCtxt f
           tyVar <- (from uterm._Var._Left #) <$> fresh
           unify fTy (TyArr Nothing (xTy ^. from uterm) (tyVar ^. from uterm) ^. uterm)
           pure tyVar

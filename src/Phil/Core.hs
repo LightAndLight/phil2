@@ -4,7 +4,7 @@
 {-# language LambdaCase #-}
 module Phil.Core where
 
-import Control.Lens.Lens (lens)
+import Control.Lens.Lens (Lens', lens)
 import Control.Lens.Plated (Plated(..), gplate)
 import Control.Lens.Plated1 (Plated1(..))
 import Control.Lens.Prism (prism')
@@ -15,20 +15,47 @@ import Data.Deriving (deriveOrd1, deriveEq1, deriveShow1)
 import GHC.Generics (Generic)
 
 data Expr ann
-  = Var String
-  | Abs String (Expr ann)
-  | App (Expr ann) (Expr ann)
-  | Ann ann (Expr ann)
+  = Var (Maybe ann) String
+  | Abs (Maybe ann) String (Expr ann)
+  | App (Maybe ann) (Expr ann) (Expr ann)
   deriving (Eq, Show, Generic)
+
 instance Plated (Expr ann) where
   plate = gplate
+
 makePrisms ''Expr
+
+exprAnn :: Lens' (Expr ann) (Maybe ann)
+exprAnn =
+  lens
+    (\case
+        Var ann _ -> ann
+        Abs ann _ _ -> ann
+        App ann _ _ -> ann)
+    (\e ann ->
+       case e of
+        Var _ a -> Var ann a
+        Abs _ a b -> Abs ann a b
+        App _ a b -> App ann a b)
 
 data Type ann a
   = TyVar (Maybe ann) a
   | TyArr (Maybe ann) (Type ann a) (Type ann a)
   | TyCtor (Maybe ann) String
   deriving (Eq, Show, Functor, Foldable, Traversable, Generic)
+
+typeAnn :: Lens' (Type ann a) (Maybe ann)
+typeAnn =
+  lens
+    (\case
+        TyVar ann _ -> ann
+        TyArr ann _ _ -> ann
+        TyCtor ann _ -> ann)
+    (\e ann ->
+       case e of
+        TyVar _ a -> TyVar ann a
+        TyArr _ a b -> TyArr ann a b
+        TyCtor _ a -> TyCtor ann a)
 
 data TypeScheme ann a = Forall [a] (Type ann a)
   deriving (Eq, Show, Functor, Foldable, Traversable)
@@ -50,17 +77,7 @@ instance AsVar (Type ann) where
           _ -> Nothing)
 
 instance HasAnnotation (Type ann) (Maybe ann) where
-  annotation =
-    lens
-      (\case
-         TyVar a _ -> a
-         TyArr a _ _ -> a
-         TyCtor a _ -> a)
-      (\e a' ->
-         case e of
-           TyVar _ b -> TyVar a' b
-           TyArr _ b c -> TyArr a' b c
-           TyCtor _ b -> TyCtor a' b)
+  annotation = typeAnn
 
 instance Monad (Type ann) where
   return = TyVar Nothing
