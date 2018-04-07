@@ -14,30 +14,6 @@ import Control.Monad.Unify (AsVar(..), HasAnnotation(..), Unifiable(..))
 import Data.Deriving (deriveOrd1, deriveEq1, deriveShow1)
 import GHC.Generics (Generic)
 
-data Expr ann
-  = Var (Maybe ann) String
-  | Abs (Maybe ann) String (Expr ann)
-  | App (Maybe ann) (Expr ann) (Expr ann)
-  deriving (Eq, Show, Generic)
-
-instance Plated (Expr ann) where
-  plate = gplate
-
-makePrisms ''Expr
-
-exprAnn :: Lens' (Expr ann) (Maybe ann)
-exprAnn =
-  lens
-    (\case
-        Var ann _ -> ann
-        Abs ann _ _ -> ann
-        App ann _ _ -> ann)
-    (\e ann ->
-       case e of
-        Var _ a -> Var ann a
-        Abs _ a b -> Abs ann a b
-        App _ a b -> App ann a b)
-
 data Type ann a
   = TyVar (Maybe ann) a
   | TyArr (Maybe ann) (Type ann a) (Type ann a)
@@ -91,3 +67,30 @@ instance Unifiable (Type ann) where
   toplevelEqual TyArr{} TyArr{} = True
   toplevelEqual (TyCtor _ a) (TyCtor _ b) = a == b
   toplevelEqual _ _ = False
+
+data Expr ann
+  = Var (Maybe ann) String
+  | Abs (Maybe ann) String (Expr ann)
+  | App (Maybe ann) (Expr ann) (Expr ann)
+  | Ann (Maybe ann) (Type ann String) (Expr ann)
+  deriving (Eq, Show, Generic)
+
+instance Plated (Expr ann) where
+  plate = gplate
+
+makePrisms ''Expr
+
+exprAnn :: Lens' (Expr ann) (Maybe ann)
+exprAnn =
+  lens
+    (\case
+        Var ann _ -> ann
+        Abs ann _ _ -> ann
+        App ann _ _ -> ann
+        Ann ann _ _ -> ann)
+    (\e ann ->
+       case e of
+        Var _ a -> Var ann a
+        Abs _ a b -> Abs ann a b
+        App _ a b -> App ann a b
+        Ann _ a b -> Ann ann a b)

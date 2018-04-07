@@ -21,18 +21,18 @@ import qualified Data.Map as Map
 
 import Phil.Core (Expr(..), Type(..), TypeScheme(..))
 
-data TypeError tyAnn ann v
+data TypeError ann v
   = NotFound (Maybe ann) String
-  | Occurs UVar (UTerm (Type tyAnn) v) (Maybe tyAnn)
-  | TypeMismatch (UTerm (Type tyAnn) v) (UTerm (Type tyAnn) v) (Maybe tyAnn)
+  | Occurs UVar (UTerm (Type ann) v) (Maybe ann)
+  | TypeMismatch (UTerm (Type ann) v) (UTerm (Type ann) v) (Maybe ann)
   deriving Show
 makePrisms ''TypeError
 
-instance AsUnificationError (TypeError tyAnn ann v) (Type tyAnn) v (Maybe tyAnn) where
+instance AsUnificationError (TypeError ann v) (Type ann) v (Maybe ann) where
   _OccursError = _Occurs
   _MismatchError = _TypeMismatch
 
-generalize :: UTerm (Type tyAnn) String -> TypeScheme tyAnn String
+generalize :: UTerm (Type ann) String -> TypeScheme ann String
 generalize t =
   let
     (res, (_, mapping)) =
@@ -67,10 +67,10 @@ instantiate (Forall vs ty) = do
 -- check (Int -> Int) (forall a. a -> a) succeeds
 -- check (forall a. a -> a) (Int -> Int) fails
 check
-  :: (Ord v, Ord tyAnn)
-  => TypeScheme tyAnn v
-  -> TypeScheme tyAnn v
-  -> Either (TypeError tyAnn ann v) ()
+  :: (Ord v, Ord ann)
+  => TypeScheme ann v
+  -> TypeScheme ann v
+  -> Either (TypeError ann v) ()
 check (Forall _ ty1) tys2 =
   runUnifyT $ do
     ty1' <- pure $ unfreeze ty1
@@ -78,11 +78,11 @@ check (Forall _ ty1) tys2 =
     unify ty1' ty2'
 
 infer
-  :: forall tyAnn ann
-   . Ord tyAnn
-  => Map String (TypeScheme tyAnn String)
+  :: forall ann
+   . Ord ann
+  => Map String (TypeScheme ann String)
   -> Expr ann
-  -> Either (TypeError tyAnn ann String) (TypeScheme tyAnn String)
+  -> Either (TypeError ann String) (TypeScheme ann String)
 infer ctxt =
   runUnifyT .
   (pure . generalize <=<
@@ -91,15 +91,19 @@ infer ctxt =
 
   where
     go
-      :: Map String (UTerm (Type tyAnn) String)
+      :: Map String (UTerm (Type ann) String)
       -> Expr ann
       -> UnifyT
-           (Type tyAnn)
+           (Type ann)
            String
-           (Either (TypeError tyAnn ann String))
-           (UTerm (Type tyAnn) String)
+           (Either (TypeError ann String))
+           (UTerm (Type ann) String)
     go localCtxt expr =
       case expr of
+        Ann _ ty x -> do
+          xTy <- go localCtxt x
+          unify (unfreeze ty) xTy
+          pure xTy
         Var maybeAnn v ->
           case Map.lookup v localCtxt of
             Just ty -> lift $ Right ty
