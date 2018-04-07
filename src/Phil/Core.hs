@@ -1,13 +1,16 @@
-{-# language DeriveFunctor, DeriveGeneric #-}
-{-# language MultiParamTypeClasses #-}
+{-# language DeriveFunctor, DeriveFoldable, DeriveGeneric, DeriveTraversable #-}
+{-# language MultiParamTypeClasses, FlexibleInstances #-}
 {-# language TemplateHaskell #-}
 module Phil.Core where
 
-import GHC.Generics (Generic)
+import Control.Lens.Lens (lens)
 import Control.Lens.Plated (Plated(..), gplate)
 import Control.Lens.Plated1 (Plated1(..))
 import Control.Lens.TH (makePrisms)
-import Control.Monad.Unify (AsVar(..), HasAnnotation(..))
+import Control.Monad (ap)
+import Control.Monad.Unify (AsVar(..), HasAnnotation(..), Unifiable(..))
+import Data.Deriving (deriveOrd1, deriveEq1, deriveShow1)
+import GHC.Generics (Generic)
 
 data Expr ann
   = Var String
@@ -24,10 +27,25 @@ data Type ann a
   | TyArr (Type ann a) (Type ann a)
   | TyCtor String
   | TyAnn ann (Type ann a)
-  deriving (Eq, Show, Generic)
-instance Plated1 (Type ann) where
-  plate1 = gplate
+  deriving (Eq, Show, Functor, Foldable, Traversable, Generic)
+deriveEq1 ''Type
+deriveOrd1 ''Type
+deriveShow1 ''Type
+instance Plated1 (Type ann) where; plate1 = gplate
 makePrisms ''Type
-instance AsVar (Type ann) where
-  _Var = _TyVar
-instance HasAnnotation (Type ann) ()
+instance AsVar (Type ann) where; _Var = _TyVar
+instance HasAnnotation (Type ann) ann where
+  annotation = lens (\(TyAnn a _) -> a) (\(TyAnn a b) a' -> TyAnn a' b)
+instance Monad (Type ann) where
+  return = TyVar
+  TyVar a >>= f = f a
+  TyArr a b >>= f = TyArr (a >>= f) (b >>= f)
+  TyCtor a >>= _ = TyCtor a
+  TyAnn a b >>= f = TyAnn a (b >>= f)
+instance Applicative (Type ann) where; pure = return; (<*>) = ap
+instance Unifiable (Type ann) where
+  toplevelEqual TyArr{} TyArr{} = True
+  toplevelEqual (TyAnn a b) c = toplevelEqual b c
+  toplevelEqual a (TyAnn b c) = toplevelEqual a c
+  toplevelEqual (TyCtor a) (TyCtor b) = a == b
+  toplevelEqual _ _ = False

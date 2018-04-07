@@ -14,7 +14,6 @@ let
   unification = haskellPackages.callPackage ./nix/unification.nix {};
   drv = haskellPackages.callPackage f {
     inherit unification;
-    containers = haskellPackages.containers_0_5_10_2;
     };
 
 in
