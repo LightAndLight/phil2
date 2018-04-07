@@ -9,7 +9,7 @@ import Control.Lens.Iso (from)
 import Control.Lens.Prism (_Left)
 import Control.Lens.Review ((#))
 import Control.Lens.TH (makePrisms)
-import Control.Monad (join)
+import Control.Monad ((<=<), join)
 import Control.Monad.State (runState, get, put)
 import Control.Monad.Trans (lift)
 import Control.Monad.Unify
@@ -41,7 +41,7 @@ generalize t =
     Forall (snd <$> reverse mapping) (join res)
 
   where
-    initialState = (("t"++) . show <$> [0..], [])
+    initialState = (("t"++) . show <$> [0::Integer ..], [])
     rename (Left uvar) = do
       (name:names, mapping) <- get
       case lookup uvar mapping of
@@ -71,7 +71,7 @@ check
   => TypeScheme tyAnn v
   -> TypeScheme tyAnn v
   -> Either (TypeError tyAnn ann v) ()
-check tys1@(Forall vs1 ty1) tys2@(Forall vs2 ty2) =
+check (Forall _ ty1) tys2 =
   runUnifyT $ do
     ty1' <- pure $ unfreeze ty1
     ty2' <- instantiate tys2
@@ -83,11 +83,11 @@ infer
   => Map String (TypeScheme tyAnn String)
   -> Expr ann
   -> Either (TypeError tyAnn ann String) (TypeScheme tyAnn String)
-infer ctxt expr =
-  runUnifyT $
-    go Map.empty expr >>=
-    find >>=
-    pure . generalize
+infer ctxt =
+  runUnifyT .
+  (pure . generalize <=<
+   find <=<
+   go Map.empty)
 
   where
     go
@@ -107,11 +107,11 @@ infer ctxt expr =
               case Map.lookup v ctxt of
                 Nothing -> lift . Left $ NotFound maybeAnn v
                 Just ty -> instantiate ty >>= lift . Right
-        Abs maybeAnn n expr' -> do
+        Abs _ n expr' -> do
           tyVar <- (from uterm._Var._Left #) <$> fresh
           retTy <- go (Map.insert n tyVar localCtxt) expr'
           pure $ TyArr Nothing (tyVar ^. from uterm) (retTy ^. from uterm) ^. uterm
-        App maybeAnn f x -> do
+        App _ f x -> do
           xTy <- go localCtxt x
           fTy <- go localCtxt f
           tyVar <- (from uterm._Var._Left #) <$> fresh

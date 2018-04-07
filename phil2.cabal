@@ -26,6 +26,6 @@ library
                      , deriving-compat >=0.3 && <0.4
                      , unification
   hs-source-dirs:      src
-  ghc-options:         -Wincomplete-patterns -Wincomplete-record-updates
+  ghc-options:         -Wall -Wincomplete-record-updates
                        -Wunused-imports -Werror
   default-language:    Haskell2010
