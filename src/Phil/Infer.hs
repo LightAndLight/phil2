@@ -4,13 +4,13 @@
 {-# language FlexibleContexts #-}
 module Phil.Infer where
 
-import Control.Lens.Getter ((^.))
+import Control.Lens.Getter ((^.), view)
 import Control.Lens.Iso (from)
 import Control.Lens.Prism (_Left)
 import Control.Lens.Review ((#))
 import Control.Lens.TH (makePrisms)
 import Control.Monad (join)
-import Control.Monad.State (evalState, get, put)
+import Control.Monad.State (runState, get, put)
 import Control.Monad.Trans (lift)
 import Control.Monad.Unify
   (UnifyT, UTerm, UVar, runUnifyT, _Var, fresh, unify, find, unfreeze, uterm,
@@ -20,7 +20,7 @@ import Data.Maybe (fromMaybe)
 
 import qualified Data.Map as Map
 
-import Phil.Core (Expr(..), Type(..))
+import Phil.Core (Expr(..), Type(..), TypeScheme(..))
 
 data TypeError tyAnn ann v
   = NotFound (Maybe ann) String
@@ -33,38 +33,47 @@ instance AsUnificationError (TypeError tyAnn ann v) (Type tyAnn) v tyAnn where
   _OccursError = _Occurs
   _MismatchError = _TypeMismatch
 
-generalize :: UTerm (Type tyAnn) String -> Type tyAnn String
+generalize :: UTerm (Type tyAnn) String -> TypeScheme tyAnn String
 generalize t =
-  join $
-  evalState (traverse rename (t ^. from uterm)) initialState
+  let
+    (res, (_, mapping)) =
+      runState (traverse rename (t ^. from uterm)) initialState
+  in
+    Forall (snd <$> reverse mapping) (join res)
+
   where
-    initialState = (("t"++) . show <$> [0..], Map.empty)
+    initialState = (("t"++) . show <$> [0..], [])
     rename (Left uvar) = do
       (name:names, mapping) <- get
-      case Map.lookup uvar mapping of
+      case lookup uvar mapping of
         Nothing -> do
-          put (names, Map.insert uvar name mapping)
+          put (names, (uvar, name) : mapping)
           pure $ TyVar name
         Just name' -> pure $ TyVar name'
     rename (Right a) = pure $ TyVar a
 
+instantiate
+  :: (Monad m, Eq v)
+  => TypeScheme ann v
+  -> UnifyT (Type ann) v m (UTerm (Type ann) v)
+instantiate (Forall vs ty) = do
+  mapping <- zip vs <$> traverse (const fresh) vs
+  pure . view uterm $
+    ty >>= \var -> TyVar (maybe (Right var) Left (lookup var mapping))
+
 infer
   :: forall tyAnn ann
    . Ord tyAnn
-  => Map String (Type tyAnn String)
+  => Map String (TypeScheme tyAnn String)
   -> Expr ann
-  -> Either (TypeError tyAnn ann String) (Type tyAnn String)
+  -> Either (TypeError tyAnn ann String) (TypeScheme tyAnn String)
 infer ctxt expr =
-  let
-    ctxt' = fmap unfreeze ctxt
-  in
-
-    runUnifyT $
-      (case expr of
-        Ann ann expr' -> go ctxt' (Just ann) expr'
-        _ -> go ctxt' Nothing expr) >>=
-      find >>=
-      pure . generalize
+  runUnifyT $
+    (case expr of
+      Ann ann expr' -> go Map.empty (Just ann) expr'
+      _ -> go Map.empty Nothing expr) >>=
+    find >>=
+    pure . generalize
 
   where
     go
@@ -76,20 +85,23 @@ infer ctxt expr =
            String
            (Either (TypeError tyAnn ann String))
            (UTerm (Type tyAnn) String)
-    go ctxt maybeAnn expr =
+    go localCtxt maybeAnn expr =
       case expr of
-        Ann ann expr' -> go ctxt (Just ann) expr'
+        Ann ann expr' -> go localCtxt (Just ann) expr'
         Var v ->
-          case Map.lookup v ctxt of
-            Nothing -> lift . Left $ NotFound maybeAnn v
+          case Map.lookup v localCtxt of
             Just ty -> lift $ Right ty
+            Nothing ->
+              case Map.lookup v ctxt of
+                Nothing -> lift . Left $ NotFound maybeAnn v
+                Just ty -> instantiate ty >>= lift . Right
         Abs n expr' -> do
           tyVar <- (from uterm._Var._Left #) <$> fresh
-          retTy <- go (Map.insert n tyVar ctxt) Nothing expr'
+          retTy <- go (Map.insert n tyVar localCtxt) Nothing expr'
           pure $ TyArr (tyVar ^. from uterm) (retTy ^. from uterm) ^. uterm
         App f x -> do
-          xTy <- go ctxt Nothing x
-          fTy <- go ctxt Nothing f
+          xTy <- go localCtxt Nothing x
+          fTy <- go localCtxt Nothing f
           tyVar <- (from uterm._Var._Left #) <$> fresh
           unify fTy (TyArr (xTy ^. from uterm) (tyVar ^. from uterm) ^. uterm)
           pure tyVar

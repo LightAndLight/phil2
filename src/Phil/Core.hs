@@ -28,21 +28,32 @@ data Type ann a
   | TyCtor String
   | TyAnn ann (Type ann a)
   deriving (Eq, Show, Functor, Foldable, Traversable, Generic)
+
+data TypeScheme ann a = Forall [a] (Type ann a)
+  deriving (Eq, Show, Functor, Foldable, Traversable)
+
 deriveEq1 ''Type
 deriveOrd1 ''Type
 deriveShow1 ''Type
+
 instance Plated1 (Type ann) where; plate1 = gplate
+
 makePrisms ''Type
+
 instance AsVar (Type ann) where; _Var = _TyVar
+
 instance HasAnnotation (Type ann) ann where
   annotation = lens (\(TyAnn a _) -> a) (\(TyAnn a b) a' -> TyAnn a' b)
+
 instance Monad (Type ann) where
   return = TyVar
   TyVar a >>= f = f a
   TyArr a b >>= f = TyArr (a >>= f) (b >>= f)
   TyCtor a >>= _ = TyCtor a
   TyAnn a b >>= f = TyAnn a (b >>= f)
+
 instance Applicative (Type ann) where; pure = return; (<*>) = ap
+
 instance Unifiable (Type ann) where
   toplevelEqual TyArr{} TyArr{} = True
   toplevelEqual (TyAnn a b) c = toplevelEqual b c
