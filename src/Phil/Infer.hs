@@ -18,18 +18,19 @@ import Control.Monad.Unify
 import Data.Map (Map)
 import Data.Maybe (fromMaybe)
 
+
 import qualified Data.Map as Map
 
 import Phil.Core (Expr(..), Type(..), TypeScheme(..))
 
 data TypeError tyAnn ann v
   = NotFound (Maybe ann) String
-  | Occurs UVar (UTerm (Type tyAnn) v) tyAnn
-  | TypeMismatch (UTerm (Type tyAnn) v) (UTerm (Type tyAnn) v) tyAnn
+  | Occurs UVar (UTerm (Type tyAnn) v) (Maybe tyAnn)
+  | TypeMismatch (UTerm (Type tyAnn) v) (UTerm (Type tyAnn) v) (Maybe tyAnn)
   deriving Show
 makePrisms ''TypeError
 
-instance AsUnificationError (TypeError tyAnn ann v) (Type tyAnn) v tyAnn where
+instance AsUnificationError (TypeError tyAnn ann v) (Type tyAnn) v (Maybe tyAnn) where
   _OccursError = _Occurs
   _MismatchError = _TypeMismatch
 
@@ -48,9 +49,9 @@ generalize t =
       case lookup uvar mapping of
         Nothing -> do
           put (names, (uvar, name) : mapping)
-          pure $ TyVar name
-        Just name' -> pure $ TyVar name'
-    rename (Right a) = pure $ TyVar a
+          pure $ TyVar Nothing name
+        Just name' -> pure $ TyVar Nothing name'
+    rename (Right a) = pure $ TyVar Nothing a
 
 instantiate
   :: (Monad m, Eq v)
@@ -59,7 +60,25 @@ instantiate
 instantiate (Forall vs ty) = do
   mapping <- zip vs <$> traverse (const fresh) vs
   pure . view uterm $
-    ty >>= \var -> TyVar (maybe (Right var) Left (lookup var mapping))
+    ty >>= \var -> TyVar Nothing (maybe (Right var) Left (lookup var mapping))
+
+-- | Check that the first argument is an instantiation of the second
+--
+-- i.e.
+-- 
+-- check (Int -> Int) (forall a. a -> a) succeeds
+-- check (forall a. a -> a) (Int -> Int) fails
+
+check
+  :: (Ord v, Ord tyAnn)
+  => TypeScheme tyAnn v
+  -> TypeScheme tyAnn v
+  -> Either (TypeError tyAnn ann v) ()
+check tys1@(Forall vs1 ty1) tys2@(Forall vs2 ty2) =
+  runUnifyT $ do
+    ty1' <- pure $ unfreeze ty1
+    ty2' <- instantiate tys2
+    unify ty1' ty2'
 
 infer
   :: forall tyAnn ann
@@ -87,7 +106,6 @@ infer ctxt expr =
            (UTerm (Type tyAnn) String)
     go localCtxt maybeAnn expr =
       case expr of
-        Ann ann expr' -> go localCtxt (Just ann) expr'
         Var v ->
           case Map.lookup v localCtxt of
             Just ty -> lift $ Right ty
@@ -98,10 +116,10 @@ infer ctxt expr =
         Abs n expr' -> do
           tyVar <- (from uterm._Var._Left #) <$> fresh
           retTy <- go (Map.insert n tyVar localCtxt) Nothing expr'
-          pure $ TyArr (tyVar ^. from uterm) (retTy ^. from uterm) ^. uterm
+          pure $ TyArr Nothing (tyVar ^. from uterm) (retTy ^. from uterm) ^. uterm
         App f x -> do
           xTy <- go localCtxt Nothing x
           fTy <- go localCtxt Nothing f
           tyVar <- (from uterm._Var._Left #) <$> fresh
-          unify fTy (TyArr (xTy ^. from uterm) (tyVar ^. from uterm) ^. uterm)
+          unify fTy (TyArr Nothing (xTy ^. from uterm) (tyVar ^. from uterm) ^. uterm)
           pure tyVar

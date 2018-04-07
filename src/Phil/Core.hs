@@ -1,11 +1,13 @@
 {-# language DeriveFunctor, DeriveFoldable, DeriveGeneric, DeriveTraversable #-}
 {-# language MultiParamTypeClasses, FlexibleInstances #-}
 {-# language TemplateHaskell #-}
+{-# language LambdaCase #-}
 module Phil.Core where
 
 import Control.Lens.Lens (lens)
 import Control.Lens.Plated (Plated(..), gplate)
 import Control.Lens.Plated1 (Plated1(..))
+import Control.Lens.Prism (prism')
 import Control.Lens.TH (makePrisms)
 import Control.Monad (ap)
 import Control.Monad.Unify (AsVar(..), HasAnnotation(..), Unifiable(..))
@@ -23,10 +25,9 @@ instance Plated (Expr ann) where
 makePrisms ''Expr
 
 data Type ann a
-  = TyVar a
-  | TyArr (Type ann a) (Type ann a)
-  | TyCtor String
-  | TyAnn ann (Type ann a)
+  = TyVar (Maybe ann) a
+  | TyArr (Maybe ann) (Type ann a) (Type ann a)
+  | TyCtor (Maybe ann) String
   deriving (Eq, Show, Functor, Foldable, Traversable, Generic)
 
 data TypeScheme ann a = Forall [a] (Type ann a)
@@ -40,23 +41,36 @@ instance Plated1 (Type ann) where; plate1 = gplate
 
 makePrisms ''Type
 
-instance AsVar (Type ann) where; _Var = _TyVar
+instance AsVar (Type ann) where
+  _Var =
+    prism'
+      (TyVar Nothing)
+      (\case
+          TyVar _ a -> Just a
+          _ -> Nothing)
 
-instance HasAnnotation (Type ann) ann where
-  annotation = lens (\(TyAnn a _) -> a) (\(TyAnn a b) a' -> TyAnn a' b)
+instance HasAnnotation (Type ann) (Maybe ann) where
+  annotation =
+    lens
+      (\case
+         TyVar a _ -> a
+         TyArr a _ _ -> a
+         TyCtor a _ -> a)
+      (\e a' ->
+         case e of
+           TyVar _ b -> TyVar a' b
+           TyArr _ b c -> TyArr a' b c
+           TyCtor _ b -> TyCtor a' b)
 
 instance Monad (Type ann) where
-  return = TyVar
-  TyVar a >>= f = f a
-  TyArr a b >>= f = TyArr (a >>= f) (b >>= f)
-  TyCtor a >>= _ = TyCtor a
-  TyAnn a b >>= f = TyAnn a (b >>= f)
+  return = TyVar Nothing
+  TyVar _ a >>= f = f a
+  TyArr ann a b >>= f = TyArr ann (a >>= f) (b >>= f)
+  TyCtor ann a >>= _ = TyCtor ann a
 
 instance Applicative (Type ann) where; pure = return; (<*>) = ap
 
 instance Unifiable (Type ann) where
   toplevelEqual TyArr{} TyArr{} = True
-  toplevelEqual (TyAnn a b) c = toplevelEqual b c
-  toplevelEqual a (TyAnn b c) = toplevelEqual a c
-  toplevelEqual (TyCtor a) (TyCtor b) = a == b
+  toplevelEqual (TyCtor _ a) (TyCtor _ b) = a == b
   toplevelEqual _ _ = False
