@@ -21,6 +21,7 @@ library
                      , Phil.Builtins
                      , Phil.Eval
                      , Phil.Parser
+                     , Phil.Printer
                      , Phil.Typecheck
   build-depends:       base >=4.9 && <4.11
                      , lens >=4.15 && <4.16
