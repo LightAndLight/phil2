@@ -6,6 +6,7 @@ module Phil.Typecheck where
 
 import Control.Lens.Getter ((^.), view)
 import Control.Lens.Iso (from)
+import Control.Lens.Setter (over)
 import Control.Lens.TH (makePrisms)
 import Control.Lens.Traversal (traverseOf)
 import Control.Monad (join)
@@ -158,3 +159,6 @@ infer ctxt e =
         Hole ann -> do
           ty <- fresh
           pure (Ann Nothing (Hole ann) ty, ty)
+        Quote ann expr' -> do
+          let ty = TyCtor Nothing "Expr" ^. uterm
+          pure (Ann Nothing (Quote ann $ over exprTypes unfreeze expr') ty, ty)

@@ -75,6 +75,7 @@ data Expr ty ann
   | Abs (Maybe ann) String (Expr ty ann)
   | App (Maybe ann) (Expr ty ann) (Expr ty ann)
   | Hole (Maybe ann)
+  | Quote (Maybe ann) (Expr ty ann)
   | Ann (Maybe ann) (Expr ty ann) (ty String)
   deriving (Generic)
 deriving instance (Eq (ty String), Eq ann) => Eq (Expr ty ann)
@@ -93,6 +94,7 @@ exprAnn =
         Abs ann _ _ -> ann
         App ann _ _ -> ann
         Ann ann _ _ -> ann
+        Quote ann _ -> ann
         Hole ann -> ann)
     (\e ann ->
        case e of
@@ -100,6 +102,7 @@ exprAnn =
         Abs _ a b -> Abs ann a b
         App _ a b -> App ann a b
         Ann _ a b -> Ann ann a b
+        Quote _ a -> Quote ann a
         Hole _ -> Hole ann)
 
 exprTypes :: Traversal (Expr ty ann) (Expr ty' ann) (ty String) (ty' String)
@@ -109,4 +112,5 @@ exprTypes f expr =
     Abs ann a b -> Abs ann a <$> exprTypes f b
     App ann a b -> App ann <$> exprTypes f a <*> exprTypes f b
     Ann ann a b -> Ann ann <$> exprTypes f a <*> f b
+    Quote ann a -> Quote ann <$> exprTypes f a
     Hole ann -> pure $ Hole ann

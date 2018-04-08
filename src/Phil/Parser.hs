@@ -128,7 +128,12 @@ expr = compound
 
     hole = (\ann -> Hole (Just ann)) <$> spanning (string "??")
 
+    quote =
+      (\(val :~ ann) -> Quote (Just ann) val) <$>
+      spanned (char '\'' *> many nonNewline *> atom)
+
     atom =
       between (char '(' *> many nonNewline) (many nonNewline *> char ')') expr <|>
       var <|>
+      quote <|>
       hole
