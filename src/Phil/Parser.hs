@@ -2,8 +2,7 @@
 module Phil.Parser where
 
 import Control.Applicative
-  ((<|>), (<**>), liftA2, many, some, optional)
-import Control.Lens.Getter ((^.))
+  ((<|>), (<**>), many, some, optional)
 import Data.Semigroup ((<>))
 import Data.String (IsString)
 import Text.Trifecta (DeltaParsing, Span, Spanned(..), spanned, spanning)
@@ -12,7 +11,7 @@ import Text.Parser.Char (CharParsing, char, string, letter, digit, upper)
 import Text.Parser.Token (IdentifierStyle(..), ident, runUnspaced)
 import Text.Parser.Token.Highlight (Highlight(..))
 
-import Phil.Core (Expr(..), Type(..), TypeScheme(..), exprAnn, typeAnn)
+import Phil.Core (Expr(..), Type(..), TypeScheme(..))
 
 nonNewline :: CharParsing m => m Char
 nonNewline = char ' ' <|> char '\t' <?> "space"
@@ -65,19 +64,21 @@ type_ = compound
     compound = tyArr
 
     tyArr =
+      (\(val :~ _) -> val) <$>
       chainr1
-        atom
-        ((\ann l r ->
-            TyArr
-              (liftA2 (<>) ((<> ann) <$> (l ^. typeAnn)) (r ^. typeAnn))
-              l
-              r) <$>
+        (spanned atom)
+        ((\ann (l :~ lAnn) (r :~ rAnn) ->
+            let
+              ann' = lAnn <> ann <> rAnn
+            in
+              TyArr (Just ann') l r :~ ann') <$>
          spanning (many nonNewline *> string "->" *> many nonNewline))
 
     atom =
       var <|>
       ctor <|>
       between (char '(' *> many nonNewline) (many nonNewline *> char ')') type_
+
     ctor = (\(val :~ ann) -> TyCtor (Just ann) val) <$> spanned constructor
     var = (\(val :~ ann) -> TyVar (Just ann) val) <$> spanned identifier
 
@@ -113,14 +114,15 @@ expr = compound
       spanned expr
 
     app =
+      (\(val :~ _) -> val) <$>
       chainl1'
-        atom
-        ((\ann l r ->
-            App
-              (liftA2 (<>) ((<> ann) <$> (l ^. exprAnn)) (r ^. exprAnn))
-              l
-              r) <$>
-         spanning (some nonNewline))
+        (spanned atom)
+        ((\ann (l :~ lAnn) (r :~ rAnn) ->
+            let
+              ann' = lAnn <> ann <> rAnn
+            in
+              App (Just $ lAnn <> ann <> rAnn) l r :~ ann') <$>
+        spanning (some nonNewline))
 
     var = (\(val :~ ann) -> Var (Just ann) val) <$> spanned identifier
 
