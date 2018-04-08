@@ -18,6 +18,8 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:     Phil.Core
+                     , Phil.Builtins
+                     , Phil.Eval
                      , Phil.Parser
                      , Phil.Typecheck
   build-depends:       base >=4.9 && <4.11
@@ -27,6 +29,7 @@ library
                      , deriving-compat >=0.3 && <0.4
                      , trifecta >=1.7 && <1.8
                      , parsers >=0.12 && <0.13
+                     , bytestring >=0.10 && <0.11
                      , unification
   hs-source-dirs:      src
   ghc-options:         -Wall -Wincomplete-record-updates

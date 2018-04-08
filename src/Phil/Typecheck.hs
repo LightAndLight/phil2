@@ -20,7 +20,10 @@ import Data.Map (Map)
 
 import qualified Data.Map as Map
 
-import Phil.Core (Expr(..), Type(..), TypeScheme(..), exprTypes)
+import qualified Phil.Builtins as Builtins
+import Phil.Core
+  (Expr(..), Type(..), TypeScheme(..), Quotable(..), exprTypes,
+   betaReduce)
 
 data TypeError ann v
   = NotFound (Maybe ann) String
@@ -105,7 +108,9 @@ check (Forall _ _ ty1) tys2 =
 
 infer
   :: forall ann
-   . Ord ann
+   . ( Quotable ann
+     , Ord ann
+     )
   => Map String (TypeScheme ann String)
   -> Expr (Type ann) ann
   -> Either
@@ -138,27 +143,46 @@ infer ctxt e =
           pure (Ann ann x' ty', xTy)
         Var ann v ->
           case Map.lookup v localCtxt of
-            Just ty -> pure (Ann Nothing (Var ann v) ty, ty)
+            Just ty -> pure (Ann ann (Var ann v) ty, ty)
             Nothing ->
               case Map.lookup v ctxt of
                 Nothing -> lift . Left $ NotFound ann v
                 Just ty -> do
                   ty' <- instantiate ty
-                  pure (Ann Nothing (Var ann v) ty', ty')
+                  pure (Ann ann (Var ann v) ty', ty')
         Abs ann n expr' -> do
           tyVar <- fresh
           (expr'', retTy) <- go (Map.insert n tyVar localCtxt) expr'
           let ty = TyArr Nothing (tyVar ^. from uterm) (retTy ^. from uterm) ^. uterm
-          pure (Ann Nothing (Abs ann n expr'') ty, ty)
+          pure (Ann ann (Abs ann n expr'') ty, ty)
         App ann f x -> do
           (x', xTy) <- go localCtxt x
           (f', fTy) <- go localCtxt f
           tyVar <- fresh
           unify fTy (TyArr Nothing (xTy ^. from uterm) (tyVar ^. from uterm) ^. uterm)
-          pure (Ann Nothing (App ann f' x') tyVar, tyVar)
+          pure (Ann ann (App ann f' x') tyVar, tyVar)
         Hole ann -> do
           ty <- fresh
-          pure (Ann Nothing (Hole ann) ty, ty)
+          pure (Ann ann (Hole ann) ty, ty)
+        String ann s ->
+          let
+            ty = Builtins.tyString ^. uterm
+          in
+            pure (Ann ann (String ann s) ty, ty)
+        Int ann i ->
+          let
+            ty = Builtins.tyInt ^. uterm
+          in
+            pure (Ann ann (Int ann i) ty, ty)
         Quote ann expr' -> do
-          let ty = TyCtor Nothing "Expr" ^. uterm
-          pure (Ann Nothing (Quote ann $ over exprTypes unfreeze expr') ty, ty)
+          let ty = Builtins.tyExpr ^. uterm
+          pure (Ann ann (over exprTypes unfreeze (quote expr')) ty, ty)
+        Unquote ann expr' -> do
+          (expr'', exprTy) <- go localCtxt expr'
+          unify (Builtins.tyExpr ^. uterm) exprTy
+          case unquote (betaReduce expr'') of
+            Nothing ->
+              error "unquote failed but the types were correct. this is a bug"
+            Just expr''' -> do
+              (expr'''', ty) <- go localCtxt expr'''
+              pure (Ann ann expr'''' ty, ty)
