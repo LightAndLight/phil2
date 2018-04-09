@@ -22,8 +22,8 @@ import qualified Data.Map as Map
 
 import qualified Phil.Builtins as Builtins
 import Phil.Core
-  (Expr(..), Type(..), TypeScheme(..), Quotable(..), exprTypes,
-   betaReduce)
+  (Expr(..), Type(..), TypeScheme(..), exprTypes, unquoteExpr, unquoteType,
+   unquoteString, betaReduce)
 
 data TypeError ann v
   = NotFound (Maybe ann) String
@@ -108,15 +108,14 @@ check (Forall _ _ ty1) tys2 =
 
 infer
   :: forall ann
-   . ( Quotable ann
-     , Ord ann
-     )
-  => Map String (TypeScheme ann String)
+   . Ord ann
+  => (Expr (Type ann) ann -> Maybe ann)
+  -> Map String (TypeScheme ann String)
   -> Expr (Type ann) ann
   -> Either
        (TypeError ann String)
        (Expr (Type ann) ann, TypeScheme ann String)
-infer ctxt e =
+infer uAnn ctxt e =
   runUnifyT $ do
     (exprRes, tyRes) <- go Map.empty e
     tyRes' <- find tyRes
@@ -156,8 +155,8 @@ infer ctxt e =
           let ty = TyArr Nothing (tyVar ^. from uterm) (retTy ^. from uterm) ^. uterm
           pure (Ann ann (Abs ann n expr'') ty, ty)
         App ann f x -> do
-          (x', xTy) <- go localCtxt x
           (f', fTy) <- go localCtxt f
+          (x', xTy) <- go localCtxt x
           tyVar <- fresh
           unify fTy (TyArr Nothing (xTy ^. from uterm) (tyVar ^. from uterm) ^. uterm)
           pure (Ann ann (App ann f' x') tyVar, tyVar)
@@ -176,13 +175,13 @@ infer ctxt e =
             pure (Ann ann (Int ann i) ty, ty)
         Quote ann expr' -> do
           let ty = Builtins.tyExpr ^. uterm
-          pure (Ann ann (over exprTypes unfreeze (quote expr')) ty, ty)
+          pure (Ann ann (Quote ann $ over exprTypes unfreeze expr') ty, ty)
         Unquote ann expr' -> do
-          (expr'', exprTy) <- go localCtxt expr'
+          (_, exprTy) <- go localCtxt expr'
           unify (Builtins.tyExpr ^. uterm) exprTy
-          case unquote (betaReduce expr'') of
+          case unquoteExpr (unquoteType uAnn unquoteString) uAnn (betaReduce expr') of
             Nothing ->
               error "unquote failed but the types were correct. this is a bug"
-            Just expr''' -> do
-              (expr'''', ty) <- go localCtxt expr'''
-              pure (Ann ann expr'''' ty, ty)
+            Just expr'' -> do
+              (expr''', ty) <- go localCtxt expr''
+              pure (Ann ann expr''' ty, ty)

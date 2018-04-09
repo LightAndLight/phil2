@@ -169,106 +169,175 @@ exprTypes f expr =
     Int ann a -> pure $ Int ann a
     Hole ann -> pure $ Hole ann
 
--- This is a prism
-class Quotable q where
-  quote :: q -> Expr ty ann
-  unquote :: Expr ty ann -> Maybe q
+quoteInt64 :: Int64 -> Expr ty ann
+quoteInt64 i = Int Nothing i
 
-instance Quotable Int64 where
-  quote i = Int Nothing i
+unquoteInt64 :: Expr ty ann -> Maybe Int64
+unquoteInt64 (Ann _ e _) = unquoteInt64 e
+unquoteInt64 (Int Nothing i) = Just i
+unquoteInt64 _ = Nothing
 
-  unquote (Ann _ e _) = unquote e
-  unquote (Int Nothing i) = Just i
-  unquote _ = Nothing
+quoteByteString :: ByteString -> Expr ty ann
+quoteByteString b = String Nothing (Char8.unpack b)
 
-instance Quotable ByteString where
-  quote b = String Nothing (Char8.unpack b)
+unquoteByteString :: Expr ty ann -> Maybe ByteString
+unquoteByteString (Ann _ e _) = unquoteByteString e
+unquoteByteString (String Nothing s) = Just $ Char8.pack s
+unquoteByteString _ = Nothing
 
-  unquote (Ann _ e _) = unquote e
-  unquote (String Nothing s) = Just $ Char8.pack s
-  unquote _ = Nothing
+quoteDelta :: Delta -> Expr ty ann
+quoteDelta (Columns a b) = Ctor2 "Columns" (quoteInt64 a) (quoteInt64 b)
+quoteDelta (Tab a b c) =
+  Ctor3 "Tab" (quoteInt64 a) (quoteInt64 b) (quoteInt64 c)
+quoteDelta (Lines a b c d) =
+  Ctor4 "Lines" (quoteInt64 a) (quoteInt64 b) (quoteInt64 c) (quoteInt64 d)
+quoteDelta (Directed a b c d e) =
+  Ctor5 "Lines"
+    (quoteByteString a)
+    (quoteInt64 b)
+    (quoteInt64 c)
+    (quoteInt64 d)
+    (quoteInt64 e)
 
-instance Quotable Delta where
-  quote (Columns a b) = Ctor2 "Columns" (quote a) (quote b)
-  quote (Tab a b c) = Ctor3 "Tab" (quote a) (quote b) (quote c)
-  quote (Lines a b c d) = Ctor4 "Lines" (quote a) (quote b) (quote c) (quote d)
-  quote (Directed a b c d e) = Ctor5 "Lines" (quote a) (quote b) (quote c) (quote d) (quote e)
+unquoteDelta :: Expr ty ann -> Maybe Delta
+unquoteDelta (Ann _ e _) = unquoteDelta e
+unquoteDelta (Ctor2 "Columns" a b) =
+  Columns <$> unquoteInt64 a <*> unquoteInt64 b
+unquoteDelta (Ctor3 "Tab" a b c) =
+  Tab <$> unquoteInt64 a <*> unquoteInt64 b <*> unquoteInt64 c
+unquoteDelta (Ctor4 "Lines" a b c d) =
+  Lines <$>
+  unquoteInt64 a <*> unquoteInt64 b <*>
+  unquoteInt64 c <*> unquoteInt64 d
+unquoteDelta (Ctor5 "Lines" a b c d e) =
+  Directed <$>
+  unquoteByteString a <*> unquoteInt64 b <*> unquoteInt64 c <*>
+  unquoteInt64 d <*> unquoteInt64 e
+unquoteDelta _ = Nothing
 
-  unquote (Ann _ e _) = unquote e
-  unquote (Ctor2 "Columns" a b) = Columns <$> unquote a <*> unquote b
-  unquote (Ctor3 "Tab" a b c) = Tab <$> unquote a <*> unquote b <*> unquote c
-  unquote (Ctor4 "Lines" a b c d) =
-    Lines <$> unquote a <*> unquote b <*> unquote c <*> unquote d
-  unquote (Ctor5 "Lines" a b c d e) =
-    Directed <$> unquote a <*> unquote b <*> unquote c <*>
-    unquote d <*> unquote e
-  unquote _ = Nothing
+quoteSpan :: Span -> Expr ty ann
+quoteSpan (Span a b c) =
+  Ctor3 "Span" (quoteDelta a) (quoteDelta b) (quoteByteString c)
 
-instance Quotable Span where
-  quote (Span a b c) = Ctor3 "Span" (quote a) (quote b) (quote c)
+unquoteSpan :: Expr ty ann -> Maybe Span
+unquoteSpan (Ann _ e _) = unquoteSpan e
+unquoteSpan (Ctor3 "Span" a b c) =
+  Span <$> unquoteDelta a <*> unquoteDelta b <*> unquoteByteString c
+unquoteSpan _ = Nothing
 
-  unquote (Ann _ e _) = unquote e
-  unquote (Ctor3 "Span" a b c) =
-    Span <$> unquote a <*> unquote b <*> unquote c
-  unquote _ = Nothing
+quoteMaybe :: (a -> Expr ty ann) -> Maybe a -> Expr ty ann
+quoteMaybe _ Nothing = Ctor "Nothing"
+quoteMaybe f (Just a) = Ctor1 "Just" (f a)
 
-instance Quotable a => Quotable (Maybe a) where
-  quote Nothing = Ctor "Nothing"
-  quote (Just a) = Ctor1 "Just" (quote a)
+unquoteMaybe :: (Expr ty ann -> Maybe a) -> Expr ty ann -> Maybe (Maybe a)
+unquoteMaybe f (Ann _ e _) = unquoteMaybe f e
+unquoteMaybe _ (Ctor "Nothing") = Just Nothing
+unquoteMaybe f (Ctor1 "Just" a) = Just <$> f a
+unquoteMaybe _ _ = Nothing
 
-  unquote (Ann _ e _) = unquote e
-  unquote (Ctor "Nothing") = Just Nothing
-  unquote (Ctor1 "Just" a) = Just <$> unquote a
-  unquote _ = Nothing
+quoteString :: String -> Expr ty ann
+quoteString = String Nothing
 
-instance Quotable String where
-  quote = String Nothing
+unquoteString :: Expr ty ann -> Maybe String
+unquoteString (Ann _ e _) = unquoteString e
+unquoteString (String Nothing a) = Just a
+unquoteString _ = Nothing
 
-  unquote (Ann _ e _) = unquote e
-  unquote (String Nothing a) = Just a
-  unquote _ = Nothing
+quoteType
+  :: (ann -> Expr ty ann)
+  -> (a -> Expr ty ann)
+  -> Type ann a
+  -> Expr ty ann
+quoteType qAnn qA e =
+  case e of
+    TyVar ann a -> Ctor2 "TyVar" (quoteMaybe qAnn ann) (qA a)
+    TyArr ann ty1 ty2 ->
+      Ctor3 "TyArr"
+        (quoteMaybe qAnn ann)
+        (quoteType qAnn qA ty1)
+        (quoteType qAnn qA ty2)
+    TyCtor ann a -> Ctor2 "TyCtor" (quoteMaybe qAnn ann) (quoteString a)
 
-instance (Quotable ann, Quotable a) => Quotable (Type ann a) where
-  quote e =
-    case e of
-      TyVar ann a -> Ctor2 "TyVar" (quote ann) (quote a)
-      TyArr ann ty1 ty2 -> Ctor3 "TyArr" (quote ann) (quote ty1) (quote ty2)
-      TyCtor ann a -> Ctor2 "TyCtor" (quote ann) (quote a)
+unquoteType
+  :: (Expr ty ann -> Maybe ann)
+  -> (Expr ty ann -> Maybe a)
+  -> Expr ty ann
+  -> Maybe (Type ann a)
+unquoteType uAnn uA (Ann _ e _) = unquoteType uAnn uA e
+unquoteType uAnn uA e =
+  case e of
+    Ctor2 "TyVar" ann a -> TyVar <$> unquoteMaybe uAnn ann <*> uA a
+    Ctor3 "TyArr" ann ty1 ty2 ->
+      TyArr <$>
+      unquoteMaybe uAnn ann <*>
+      unquoteType uAnn uA ty1 <*>
+      unquoteType uAnn uA ty2
+    Ctor2 "TyCtor" ann a ->
+      TyCtor <$> unquoteMaybe uAnn ann <*> unquoteString a
+    _ -> Nothing
 
-  unquote (Ann _ e _) = unquote e
-  unquote e =
-    case e of
-      Ctor2 "TyVar" ann a -> TyVar <$> unquote ann <*> unquote a
-      Ctor3 "TyArr" ann ty1 ty2 ->
-        TyArr <$> unquote ann <*> unquote ty1 <*> unquote ty2
-      Ctor2 "TyCtor" ann a -> TyCtor <$> unquote ann <*> unquote a
-      _ -> Nothing
+quoteExpr
+  :: (ty String -> Expr ty ann)
+  -> (ann -> Expr ty ann)
+  -> Expr ty ann
+  -> Expr ty ann
+quoteExpr qTy qAnn e =
+  case e of
+    Var ann name ->
+      Ctor2 "Var" (quoteMaybe qAnn ann) (quoteString name)
+    Abs ann name body ->
+      Ctor3 "Abs"
+        (quoteMaybe qAnn ann)
+        (quoteString name)
+        (quoteExpr qTy qAnn body)
+    App ann f x ->
+      Ctor3 "App"
+        (quoteMaybe qAnn ann)
+        (quoteExpr qTy qAnn f)
+        (quoteExpr qTy qAnn x)
+    Hole ann ->
+      Ctor1 "Hole" (quoteMaybe qAnn ann)
+    Quote ann e' ->
+      Ctor2 "Quote" (quoteMaybe qAnn ann) (quoteExpr qTy qAnn e')
+    Unquote ann e' ->
+      Ctor2 "Unquote" (quoteMaybe qAnn ann) (quoteExpr qTy qAnn e')
+    String ann a ->
+      Ctor2 "String" (quoteMaybe qAnn ann) (quoteString a)
+    Int ann a ->
+      Ctor2 "Int" (quoteMaybe qAnn ann) (quoteInt64 a)
+    Ann ann e' ty ->
+      Ctor3 "Ann" (quoteMaybe qAnn ann) (quoteExpr qTy qAnn e') (qTy ty)
 
-instance (Quotable (ty String), Quotable ann) => Quotable (Expr ty ann) where
-  quote e =
-    case e of
-      Var ann name -> Ctor2 "Var" (quote ann) (quote name)
-      Abs ann name body -> Ctor3 "Abs" (quote ann) (quote name) (quote body)
-      App ann f x -> Ctor3 "App" (quote ann) (quote f) (quote x)
-      Hole ann -> Ctor1 "Hole" (quote ann)
-      Quote ann e' -> Ctor2 "Quote" (quote ann) (quote e')
-      Unquote ann e' -> Ctor2 "Unquote" (quote ann) (quote e')
-      String ann a -> Ctor2 "String" (quote ann) (quote a)
-      Int ann a -> Ctor2 "Int" (quote ann) (quote a)
-      Ann ann e' ty -> Ctor3 "Ann" (quote ann) (quote e') (quote ty)
-
-  unquote (Ann _ e _) = unquote e
-  unquote e =
-    case e of
-      Ctor2 "Var" ann name -> Var <$> unquote ann <*> unquote name
-      Ctor3 "Abs" ann name body ->
-        Abs <$> unquote ann <*> unquote name <*> unquote body
-      Ctor3 "App" ann f x -> App <$> unquote ann <*> unquote f <*> unquote x
-      Ctor1 "Hole" ann -> Hole <$> unquote ann
-      Ctor2 "Quote" ann e' -> Quote <$> unquote ann <*> unquote e'
-      Ctor2 "Unquote" ann e' -> Unquote <$> unquote ann <*> unquote e'
-      Ctor2 "String" ann a -> String <$> unquote ann <*> unquote a
-      Ctor2 "Int" ann a -> Int <$> unquote ann <*> unquote a
-      Ctor3 "Ann" ann e' ty ->
-        Ann <$> unquote ann <*> unquote e' <*> unquote ty
-      _ -> Nothing
+unquoteExpr
+  :: (Expr ty ann -> Maybe (ty String))
+  -> (Expr ty ann -> Maybe ann)
+  -> Expr ty ann -> Maybe (Expr ty ann)
+unquoteExpr uTy uAnn (Ann _ e _) = unquoteExpr uTy uAnn e
+unquoteExpr _ _ (Quote _ e) = Just e
+unquoteExpr uTy uAnn e =
+  case e of
+    Ctor2 "Var" ann name ->
+      Var <$> unquoteMaybe uAnn ann <*> unquoteString name
+    Ctor3 "Abs" ann name body ->
+      Abs <$>
+      unquoteMaybe uAnn ann <*>
+      unquoteString name <*>
+      unquoteExpr uTy uAnn body
+    Ctor3 "App" ann f x ->
+      App <$>
+      unquoteMaybe uAnn ann <*>
+      unquoteExpr uTy uAnn f <*>
+      unquoteExpr uTy uAnn x
+    Ctor1 "Hole" ann ->
+      Hole <$> unquoteMaybe uAnn ann
+    Ctor2 "Quote" ann e' ->
+      Quote <$> unquoteMaybe uAnn ann <*> unquoteExpr uTy uAnn e'
+    Ctor2 "Unquote" ann e' ->
+      Unquote <$> unquoteMaybe uAnn ann <*> unquoteExpr uTy uAnn e'
+    Ctor2 "String" ann a ->
+      String <$> unquoteMaybe uAnn ann <*> unquoteString a
+    Ctor2 "Int" ann a ->
+      Int <$> unquoteMaybe uAnn ann <*> unquoteInt64 a
+    Ctor3 "Ann" ann e' ty ->
+      Ann <$> unquoteMaybe uAnn ann <*> unquoteExpr uTy uAnn e' <*> uTy ty
+    _ -> Nothing
