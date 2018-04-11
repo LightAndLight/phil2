@@ -5,13 +5,27 @@ import Control.Applicative
   ((<|>), (<**>), many, some, optional)
 import Data.Semigroup ((<>))
 import Data.String (IsString)
-import Text.Trifecta (DeltaParsing, Span, Spanned(..), spanned, spanning)
+import Text.Trifecta
+  (DeltaParsing, Result(..), Span, Spanned(..), spanned, spanning,
+   parseString)
 import Text.Parser.Combinators ((<?>), Parsing, between, chainr1, try, sepBy1)
 import Text.Parser.Char (CharParsing, char, string, letter, digit, upper)
 import Text.Parser.Token (IdentifierStyle(..), ident, runUnspaced)
 import Text.Parser.Token.Highlight (Highlight(..))
 
 import Phil.Core (Expr(..), Type(..), TypeScheme(..))
+
+parseExpr :: String -> Either String (Expr (Type Span) Span)
+parseExpr s =
+  case parseString expr mempty s of
+    Failure err -> Left $ show err
+    Success a -> Right a
+
+parseTypeScheme :: IsString s => String -> Either String (TypeScheme Span s)
+parseTypeScheme s =
+  case parseString typeScheme mempty s of
+    Failure err -> Left $ show err
+    Success a -> Right a
 
 nonNewline :: CharParsing m => m Char
 nonNewline = char ' ' <|> char '\t' <?> "space"
