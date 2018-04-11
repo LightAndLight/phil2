@@ -1,5 +1,13 @@
 {-# language OverloadedLists #-}
-module Phil.Parser where
+module Phil.Parser
+  ( Span(..)
+  , parseExpr
+  , parseTypeScheme
+  , expr
+  , type_
+  , typeScheme
+  )
+where
 
 import Control.Applicative
   ((<|>), (<**>), many, some, optional)
