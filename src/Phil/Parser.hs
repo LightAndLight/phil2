@@ -142,7 +142,22 @@ expr = compound
 
     hole = (\ann -> Hole (Just ann)) <$> spanning (string "??")
 
+    quote =
+      (\(val :~ ann) -> Quote (Just ann) val) <$>
+      spanned (char '\'' *> many nonNewline *> atom)
+
+    unquote =
+      (\(val :~ ann) -> Unquote (Just ann) val) <$>
+      spanned (char '$' *> many nonNewline *> atom)
+
+    int =
+      (\(val :~ ann) -> Int (Just ann) val) <$>
+      spanned (read <$> some digit)
+
     atom =
       between (char '(' *> many nonNewline) (many nonNewline *> char ')') expr <|>
       var <|>
+      quote <|>
+      unquote <|>
+      int <|>
       hole
