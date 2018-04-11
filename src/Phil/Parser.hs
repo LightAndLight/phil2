@@ -14,7 +14,7 @@ import Control.Applicative
 import Data.Semigroup ((<>))
 import Data.String (IsString)
 import Text.Trifecta
-  (DeltaParsing, Result(..), Span, Spanned(..), spanned, spanning,
+  (DeltaParsing, Result(..), Span(..), Spanned(..), spanned, spanning,
    parseString)
 import Text.Parser.Combinators ((<?>), Parsing, between, chainr1, try, sepBy1)
 import Text.Parser.Char (CharParsing, char, string, letter, digit, upper)
