@@ -1,8 +1,9 @@
 module Phil.Printer where
 
+import Data.List (intercalate)
 import Data.Semigroup ((<>))
 
-import Phil.Core (Expr(..), Type(..))
+import Phil.Core (Expr(..), Type(..), TypeScheme(..), Definition(..))
 
 brackets :: String -> String
 brackets a = "(" <> a <> ")"
@@ -36,3 +37,13 @@ printExpr printTy e =
     nested a@App{} = brackets (printExpr printTy a)
     nested a@Ann{} = brackets (printExpr printTy a)
     nested a = printExpr printTy a
+
+printTypeScheme :: (a -> String) -> TypeScheme ann a -> String
+printTypeScheme f (Forall _ vars ty) =
+  "forall " <> intercalate " " (fmap f vars) <> ". " <> printType f ty
+
+printDefinition :: Definition ann -> String
+printDefinition (DefTypeSig _ name ts) =
+  name <> " : " <> printTypeScheme id ts
+printDefinition (DefValue _ name val) =
+  name <> " = " <> printExpr (printType id) val

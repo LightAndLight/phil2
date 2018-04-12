@@ -341,3 +341,16 @@ unquoteExpr uTy uAnn e =
     Ctor3 "Ann" ann e' ty ->
       Ann <$> unquoteMaybe uAnn ann <*> unquoteExpr uTy uAnn e' <*> uTy ty
     _ -> Nothing
+
+data Definition ann
+  = DefTypeSig
+  { _definitionAnn :: Maybe ann
+  , _unsafeDefTypeSigName :: String
+  , _unsafeDefTypeSigType :: TypeScheme ann String
+  }
+  | DefValue
+  { _definitionAnn :: Maybe ann
+  , _unsafeDefValueName :: String
+  , _unsafeDefValueExpr :: Expr (Type ann) ann
+  }
+  deriving (Eq, Show, Generic)

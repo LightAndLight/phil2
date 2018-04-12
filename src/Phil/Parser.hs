@@ -3,9 +3,13 @@ module Phil.Parser
   ( Span(..)
   , parseExpr
   , parseTypeScheme
+  , parseDefinition
+  , parseDefinitions
   , expr
   , type_
   , typeScheme
+  , definition
+  , definitions
   )
 where
 
@@ -21,7 +25,7 @@ import Text.Parser.Char (CharParsing, char, string, letter, digit, upper)
 import Text.Parser.Token (IdentifierStyle(..), ident, runUnspaced)
 import Text.Parser.Token.Highlight (Highlight(..))
 
-import Phil.Core (Expr(..), Type(..), TypeScheme(..))
+import Phil.Core (Expr(..), Type(..), TypeScheme(..), Definition(..))
 
 parseExpr :: String -> Either String (Expr (Type Span) Span)
 parseExpr s =
@@ -32,6 +36,18 @@ parseExpr s =
 parseTypeScheme :: IsString s => String -> Either String (TypeScheme Span s)
 parseTypeScheme s =
   case parseString typeScheme mempty s of
+    Failure err -> Left $ show err
+    Success a -> Right a
+
+parseDefinition :: String -> Either String (Definition Span)
+parseDefinition s =
+  case parseString definition mempty s of
+    Failure err -> Left $ show err
+    Success a -> Right a
+
+parseDefinitions :: String -> Either String [Definition Span]
+parseDefinitions s =
+  case parseString definitions mempty s of
     Failure err -> Left $ show err
     Success a -> Right a
 
@@ -169,3 +185,20 @@ expr = compound
       unquote <|>
       int <|>
       hole
+
+definition :: DeltaParsing m => m (Definition Span)
+definition =
+  fmap (\(val :~ ann) -> val { _definitionAnn = Just ann}) .
+  spanned $
+  (\name tOrE ->
+     case tOrE of
+       Left t -> DefTypeSig Nothing name t
+       Right e -> DefValue Nothing name e) <$>
+  identifier <*
+  many nonNewline <*>
+  (Left <$ char ':' <* many nonNewline <*> typeScheme <|>
+   Right <$ char '=' <* many nonNewline <*> expr)
+
+definitions :: DeltaParsing m => m [Definition Span]
+definitions =
+  sepBy1 definition (between (many nonNewline) (many nonNewline) (char ';'))
