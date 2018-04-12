@@ -201,4 +201,9 @@ definition =
 
 definitions :: DeltaParsing m => m [Definition Span]
 definitions =
-  sepBy1 definition (between (many nonNewline) (many nonNewline) (char ';'))
+  sepBy1
+    definition
+    (between
+       (many nonNewline)
+       (many $ nonNewline <|> char '\n')
+       (char ';'))
